@@ -73,13 +73,18 @@ env_set() {
 env_set GITHUB_USERNAME "$GITHUB_USERNAME"
 env_set GITHUB_TOKEN "$GITHUB_TOKEN"
 
+# Container'ı çağıran kullanıcının UID/GID'iyle koştur — root koşarsa yazdığı
+# .env/dosyalar host'ta root sahipli kalır ve sonraki koşular "Permission denied"
+# alır (Linux bind-mount davranışı). HOME=/tmp: imajda bu UID'nin passwd kaydı yok.
+RUN_AS=(--user "$(id -u):$(id -g)" -e HOME=/tmp)
+
 # Kurulum dosyalarını (compose, nginx, script'ler) imajdan bu dizine çıkar.
 # .env'e ve sertifika/log dizinlerine dokunmaz; script/compose dosyalarını
 # imajdaki versiyonla günceller.
-docker run --rm -v "$PWD:/workdir" "$IMAGE" export
+docker run --rm "${RUN_AS[@]}" -v "$PWD:/workdir" "$IMAGE" export
 
 if [ "${1:-}" = "--classic" ]; then
-    exec docker run --rm -i --network host -v "$PWD:/workdir" "$IMAGE" classic
+    exec docker run --rm -i --network host "${RUN_AS[@]}" -v "$PWD:/workdir" "$IMAGE" classic
 fi
 
 if [ ! -t 0 ] || [ ! -t 1 ]; then
@@ -87,4 +92,4 @@ if [ ! -t 0 ] || [ ! -t 1 ]; then
     exit 1
 fi
 
-exec docker run --rm -it -e TERM -e COLORTERM -v "$PWD:/workdir" "$IMAGE" tui
+exec docker run --rm -it -e TERM -e COLORTERM "${RUN_AS[@]}" -v "$PWD:/workdir" "$IMAGE" tui
