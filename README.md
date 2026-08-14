@@ -29,6 +29,10 @@ Ayarları tamamladıktan sonra:
 
 ## Notlar
 
+- Bu clone bir **kurulum dizinidir**: bootstrap'ın çıkardığı dosyalar ve `.env`
+  `.gitignore` ile izlenmez, `git status` temiz kalır. Buradan commit/push yapılmaz;
+  bootstrap güncellemeleri için `git pull` yeterlidir.
+
 - Ayarları sonradan değiştirmek için `./settings-tui.sh` (ya da tekrar `./bootstrap.sh`).
 - TTY olmayan/bozuk terminaller için klasik soru-cevap akışı: `./bootstrap.sh --classic`
 - Belirli bir kurulum aracı versiyonu için: `DATARUL_TUI_TAG=<tag> ./bootstrap.sh`

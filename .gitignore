@@ -1,0 +1,7 @@
+# Bu clone bir "kurulum dizini"dir — bootstrap sonrası buraya inen her şey
+# (kurulum dosyaları, .env, sertifikalar, loglar) git tarafından izlenmez.
+# Yalnızca reponun kendi dosyaları izlenir; buradan commit/push yapılmaz.
+*
+!bootstrap.sh
+!README.md
+!.gitignore
