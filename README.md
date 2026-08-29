@@ -33,7 +33,7 @@ Ayarları tamamladıktan sonra:
   `.gitignore` ile izlenmez, `git status` temiz kalır. Buradan commit/push yapılmaz;
   bootstrap güncellemeleri için `git pull` yeterlidir.
 
-- Ayarları sonradan değiştirmek için `./settings-tui.sh` (ya da tekrar `./bootstrap.sh`).
+- Ayarları sonradan değiştirmek için `./set-env.sh` (ayar TUI'si; ya da tekrar `./bootstrap.sh`).
 - TTY olmayan/bozuk terminaller için klasik soru-cevap akışı: `./bootstrap.sh --classic`
 - Belirli bir kurulum aracı versiyonu için: `DATARUL_TUI_TAG=<tag> ./bootstrap.sh`
 - `.env` gizli değerler içerir (600 izinli tutulur); yedeği her kayıtta `.env.bak`'a alınır.
