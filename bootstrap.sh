@@ -59,24 +59,16 @@ if ! docker pull "$IMAGE"; then
     exit 1
 fi
 
-# Kimlik bilgilerini .env'e işle (diğer değerlere dokunmadan güncelle/ekle).
-env_set() {
-    local key="$1" val="$2"
-    touch .env
-    if grep -q "^export ${key}=" .env; then
-        sed -i.tmp "s|^export ${key}=.*|export ${key}=\"${val}\"|" .env && rm -f .env.tmp
-    else
-        echo "export ${key}=\"${val}\"" >> .env
-    fi
-    chmod 600 .env
-}
-env_set GITHUB_USERNAME "$GITHUB_USERNAME"
-env_set GITHUB_TOKEN "$GITHUB_TOKEN"
-
 # Container'ı çağıran kullanıcının UID/GID'iyle koştur — root koşarsa yazdığı
 # .env/dosyalar host'ta root sahipli kalır ve sonraki koşular "Permission denied"
 # alır (Linux bind-mount davranışı). HOME=/tmp: imajda bu UID'nin passwd kaydı yok.
 RUN_AS=(--user "$(id -u):$(id -g)" -e HOME=/tmp)
+
+# Kimlik bilgilerini .env'e işle — imajdaki TEK yazıcıyla (write-env birleştirir: yalnız bu iki
+# anahtar güncellenir, diğer değerler ve elle eklenmiş satırlar korunur). Aynı kayıt anında boş
+# makine sırları (realtime ticket secret, Redis parolası) da üretilir — deploy.sh üretmez.
+printf 'GITHUB_USERNAME=%s\nGITHUB_TOKEN=%s\n' "$GITHUB_USERNAME" "$GITHUB_TOKEN" \
+    | docker run --rm -i "${RUN_AS[@]}" -v "$PWD:/workdir" "$IMAGE" write-env
 
 # Kurulum dosyalarını (compose, nginx, script'ler) imajdan bu dizine çıkar.
 # .env'e ve sertifika/log dizinlerine dokunmaz; script/compose dosyalarını
@@ -92,4 +84,14 @@ if [ ! -t 0 ] || [ ! -t 1 ]; then
     exit 1
 fi
 
-exec docker run --rm -it -e TERM -e COLORTERM "${RUN_AS[@]}" -v "$PWD:/workdir" "$IMAGE" tui
+# Host'ta algılanan sunucu IP'si TUI'ye varsayılan olarak iner ("algılanan: x.x.x.x"); container
+# host ağını görmediği için bunu kendisi bulamaz. Boş bırakılan alan deploy'da yeniden algılanır.
+HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+[ -z "$HOST_IP" ] && HOST_IP="$(ipconfig getifaddr en0 2>/dev/null || true)"
+docker run --rm -it -e TERM -e COLORTERM -e "DATARUL_DEFAULT_SERVER_IP=$HOST_IP" \
+    "${RUN_AS[@]}" -v "$PWD:/workdir" "$IMAGE" tui
+tui_rc=$?
+# Ekranı gerçekten temizle: bazı terminaller TUI'nin alternate-screen çıkış dizisini tanımıyor
+# (içerik ekranda kalıyor). terminfo'ya bağlı değil: ekran + scrollback sil, imleç eve, göster.
+[ -t 1 ] && printf '\033[2J\033[3J\033[H\033[?25h'
+exit $tui_rc
