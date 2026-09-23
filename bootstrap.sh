@@ -59,10 +59,16 @@ if ! docker pull "$IMAGE"; then
     exit 1
 fi
 
-# Container'ı çağıran kullanıcının UID/GID'iyle koştur — root koşarsa yazdığı
-# .env/dosyalar host'ta root sahipli kalır ve sonraki koşular "Permission denied"
-# alır (Linux bind-mount davranışı). HOME=/tmp: imajda bu UID'nin passwd kaydı yok.
-RUN_AS=(--user "$(id -u):$(id -g)" -e HOME=/tmp)
+# Rootful Docker'da container UID/GID'ini cagiran kullaniciya sabitle; aksi halde
+# bind mount'a yazilan dosyalar host'ta root sahipli kalir. Rootless Docker'da ise
+# container UID 0 zaten daemon'u calistiran host kullanicisina eslenir. Orada
+# `--user $(id -u):$(id -g)` kullanmak subordinate UID/GID'ye eslenir ve 0750
+# izinli /workdir'e erisimi engeller.
+RUN_AS=(-e HOME=/tmp)
+DOCKER_SECURITY_OPTIONS="$(docker info --format '{{json .SecurityOptions}}')"
+if [[ "$DOCKER_SECURITY_OPTIONS" != *'"name=rootless"'* ]]; then
+    RUN_AS=(--user "$(id -u):$(id -g)" "${RUN_AS[@]}")
+fi
 
 # Kimlik bilgilerini .env'e işle — imajdaki TEK yazıcıyla (write-env birleştirir: yalnız bu iki
 # anahtar güncellenir, diğer değerler ve elle eklenmiş satırlar korunur). Aynı kayıt anında boş
