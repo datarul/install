@@ -37,3 +37,5 @@ Ayarları tamamladıktan sonra:
 - TTY olmayan/bozuk terminaller için klasik soru-cevap akışı: `./bootstrap.sh --classic`
 - Belirli bir kurulum aracı versiyonu için: `DATARUL_TUI_TAG=<tag> ./bootstrap.sh`
 - `.env` gizli değerler içerir (600 izinli tutulur); yedeği her kayıtta `.env.bak`'a alınır.
+- Bootstrap rootful ve rootless Docker'ı otomatik algılar; bind mount dosya sahipliğini her iki
+  daemon türünde de komutu çalıştıran host kullanıcısında tutar.
