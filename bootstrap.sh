@@ -24,7 +24,7 @@ cd "$(dirname "$0")"
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 
 # Docker Hub (org: datarulplatform) — setup'ın lib/registry.sh'ı ile aynı sabitler.
-REGISTRY_DEFAULT_USERNAME="datarulplatform"
+REGISTRY_USERNAME="datarulplatform"  # org access token: kullanıcı adı = org adı (sabit)
 IMAGE="datarulplatform/setup-tui:${DATARUL_TUI_TAG:-latest}"
 
 MODE=classic
@@ -101,26 +101,42 @@ if [ -f .env ]; then source .env || exit 1; fi
 echo -e "${GREEN}Datarul Kurulum${NC}"
 echo "Docker Hub erişimi için Datarul'un verdiği erişim token'ı gerekli."
 echo ""
-# Önce açık ortam değişkeni, sonra mevcut .env. Kullanıcı adı: org access token'da org adı.
+# Önce açık ortam değişkeni, sonra mevcut .env. Token yalnız burada sorulur; sihirbaz/TUI .env'den okur.
+# Enter = gösterilen (maskeli) kayıtlı token'ın TAM değeri kullanılır. Giriş reddedilirse token'ın
+# kaynağı söylenir ve (TTY varsa) yeniden sorulur — reddedilen değer bir daha önerilmez.
 DOCKERHUB_TOKEN="${DOCKERHUB_ACCESS_TOKEN:-${DOCKERHUB_TOKEN:-}}"
-REGISTRY_USERNAME="${DOCKERHUB_USERNAME:-$REGISTRY_DEFAULT_USERNAME}"
-if [ -n "$DOCKERHUB_TOKEN" ]; then
-    echo -n "Docker Hub erişim token'ı [***${DOCKERHUB_TOKEN: -4}] (Enter=koru): "
+if [ -n "${DOCKERHUB_ACCESS_TOKEN:-}" ]; then
+    token_source="DOCKERHUB_ACCESS_TOKEN ortam değişkenindeki token (shell profilinizden kaldırın)"
 else
-    echo -n "Docker Hub erişim token'ı: "
+    token_source=".env'deki kayıtlı token"
 fi
-read -s hub_token || hub_token=""
-echo ""
-[ -n "$hub_token" ] && DOCKERHUB_TOKEN="$hub_token"
-if [ -z "${DOCKERHUB_TOKEN:-}" ]; then
-    echo -e "${RED}Hata:${NC} token boş olamaz." >&2
-    exit 1
-fi
-
-if ! printf '%s' "$DOCKERHUB_TOKEN" | docker login --username "$REGISTRY_USERNAME" --password-stdin; then
-    echo -e "${RED}Hata:${NC} Docker Hub girişi başarısız ($REGISTRY_USERNAME). Token'ı kontrol edin." >&2
-    exit 1
-fi
+attempt=1
+while :; do
+    if [ -n "$DOCKERHUB_TOKEN" ]; then
+        echo -n "Docker Hub erişim token'ı [***${DOCKERHUB_TOKEN: -4}] (Enter=koru): "
+    else
+        echo -n "Docker Hub erişim token'ı: "
+    fi
+    read -s hub_token || hub_token=""
+    echo ""
+    if [ -n "$hub_token" ]; then
+        DOCKERHUB_TOKEN="$hub_token"
+        token_source="girilen token"
+    fi
+    if [ -z "${DOCKERHUB_TOKEN:-}" ]; then
+        echo -e "${RED}Hata:${NC} token boş olamaz." >&2
+    elif printf '%s' "$DOCKERHUB_TOKEN" | docker login --username "$REGISTRY_USERNAME" --password-stdin; then
+        break
+    else
+        echo -e "${RED}Hata:${NC} Docker Hub girişi başarısız ($REGISTRY_USERNAME) — reddedilen: ${token_source}." >&2
+        DOCKERHUB_TOKEN=""
+    fi
+    if [ ! -t 0 ] || [ "$attempt" -ge 3 ]; then
+        exit 1
+    fi
+    attempt=$((attempt + 1))
+    echo "Datarul'un verdiği geçerli token'ı yapıştırın (deneme $attempt/3)."
+done
 
 if ! docker pull "$IMAGE"; then
     echo -e "${RED}Hata:${NC} $IMAGE çekilemedi." >&2
@@ -136,11 +152,11 @@ fi
 # izinli /workdir'e erisimi engeller.
 install_container_args || exit 1
 
-# Kimlik bilgilerini .env'e işle — imajdaki TEK yazıcıyla (write-env birleştirir: yalnız bu iki
-# anahtar güncellenir, diğer değerler ve elle eklenmiş satırlar korunur; emekli GITHUB_*
-# anahtarları bu kayıtta düşer). Aynı kayıt anında boş makine sırları (realtime ticket secret,
+# Token'ı .env'e işle — imajdaki TEK yazıcıyla (write-env birleştirir: yalnız bu anahtar
+# güncellenir, diğer değerler ve elle eklenmiş satırlar korunur; emekli GITHUB_* /
+# DOCKERHUB_USERNAME anahtarları bu kayıtta düşer). Aynı kayıt anında boş makine sırları (realtime ticket secret,
 # Redis parolası) da üretilir — deploy.sh üretmez.
-printf 'DOCKERHUB_USERNAME=%s\nDOCKERHUB_TOKEN=%s\n' "${DOCKERHUB_USERNAME:-}" "$DOCKERHUB_TOKEN" \
+printf 'DOCKERHUB_TOKEN=%s\n' "$DOCKERHUB_TOKEN" \
     | docker run --rm -i "${INSTALL_RUN_AS[@]}" -v "$PWD:/workdir" "$IMAGE" write-env
 
 # Kurulum dosyalarını (compose, nginx, script'ler) imajdan bu dizine çıkar.
