@@ -22,8 +22,64 @@ if ! command -v docker >/dev/null 2>&1; then
     exit 1
 fi
 
-# Mevcut .env'den varsayılanları yükle (varsa)
-[ -f .env ] && source .env 2>/dev/null || true
+# Toolkit export edilmeden de çalışmalı: lib/install-permissions.sh ile aynı
+# host sözleşmesi (setup testleri iki kopyanın eşitliğini doğrular).
+install_policy_load() {
+    local root="${1:-$PWD}" marker gid
+    marker="$root/.datarul-install-group"
+    INSTALL_GID=""
+    if [ -e "$marker" ] || [ -L "$marker" ]; then
+        if [ -L "$marker" ] || [ ! -f "$marker" ] || [ ! -r "$marker" ]; then
+            echo "Hata: $marker okunamıyor veya normal dosya değil; eski sahibi/yönetici izin onarımı yapmalı." >&2
+            return 1
+        fi
+        gid="$(cat "$marker")" || return 1
+        case "$gid" in ''|*[!0-9]*|0|0*) echo "Hata: $marker geçerli sayısal GID içermeli." >&2; return 1;; esac
+        if [ "${#gid}" -gt 10 ] || [ "$gid" -gt 2147483647 ]; then
+            echo "Hata: $marker GID aralık dışında." >&2; return 1
+        fi
+        if [ "$(id -u)" != 0 ]; then
+            case " $(id -G) " in *" $gid "*) ;; *)
+                echo "Hata: $root için kurulum grubuna (GID=$gid) üyelik gerekli; üyelikten sonra yeniden oturum açın." >&2
+                return 1;;
+            esac
+        fi
+        INSTALL_GID="$gid"
+    fi
+}
+
+install_require_readable_env() {
+    local path="${1:-.env}"
+    if [ -e "$path" ] || [ -L "$path" ]; then
+        if [ -L "$path" ] || [ ! -f "$path" ] || [ ! -r "$path" ]; then
+            echo "Hata: $path okunamıyor veya normal dosya değil. Eski sahibi/yönetici repair-install-permissions.sh --group <kurulum-grubu> -y ile onarmalı." >&2
+            return 1
+        fi
+    fi
+}
+
+install_container_args() {
+    install_policy_load "${1:-$PWD}" || return 1
+    local options
+    options="$(docker info --format '{{json .SecurityOptions}}')" || return 1
+    INSTALL_RUN_AS=(-e HOME=/tmp)
+    if [[ "$options" == *'"name=rootless"'* ]]; then
+        if [ -n "$INSTALL_GID" ]; then
+            echo "Hata: ortak kurulum GID=$INSTALL_GID rootless namespace'e doğrudan aktarılamaz; ortak kurulum için rootful Docker kullanın. Tek kullanıcı rootless desteklenir." >&2
+            return 1
+        fi
+    else
+        INSTALL_RUN_AS=(--user "$(id -u):$(id -g)" "${INSTALL_RUN_AS[@]}")
+        if [ -n "$INSTALL_GID" ]; then
+            INSTALL_RUN_AS+=(--group-add "$INSTALL_GID" -e "DATARUL_INSTALL_GID=$INSTALL_GID")
+        fi
+    fi
+}
+
+
+install_policy_load || exit 1
+install_require_readable_env .env || exit 1
+if [ -f .env ]; then source .env || exit 1; fi
 
 echo -e "${GREEN}Datarul Kurulum${NC}"
 echo "GitHub Container Registry erişimi için kimlik bilgileri gerekli"
@@ -64,25 +120,21 @@ fi
 # container UID 0 zaten daemon'u calistiran host kullanicisina eslenir. Orada
 # `--user $(id -u):$(id -g)` kullanmak subordinate UID/GID'ye eslenir ve 0750
 # izinli /workdir'e erisimi engeller.
-RUN_AS=(-e HOME=/tmp)
-DOCKER_SECURITY_OPTIONS="$(docker info --format '{{json .SecurityOptions}}')"
-if [[ "$DOCKER_SECURITY_OPTIONS" != *'"name=rootless"'* ]]; then
-    RUN_AS=(--user "$(id -u):$(id -g)" "${RUN_AS[@]}")
-fi
+install_container_args || exit 1
 
 # Kimlik bilgilerini .env'e işle — imajdaki TEK yazıcıyla (write-env birleştirir: yalnız bu iki
 # anahtar güncellenir, diğer değerler ve elle eklenmiş satırlar korunur). Aynı kayıt anında boş
 # makine sırları (realtime ticket secret, Redis parolası) da üretilir — deploy.sh üretmez.
 printf 'GITHUB_USERNAME=%s\nGITHUB_TOKEN=%s\n' "$GITHUB_USERNAME" "$GITHUB_TOKEN" \
-    | docker run --rm -i "${RUN_AS[@]}" -v "$PWD:/workdir" "$IMAGE" write-env
+    | docker run --rm -i "${INSTALL_RUN_AS[@]}" -v "$PWD:/workdir" "$IMAGE" write-env
 
 # Kurulum dosyalarını (compose, nginx, script'ler) imajdan bu dizine çıkar.
 # .env'e ve sertifika/log dizinlerine dokunmaz; script/compose dosyalarını
 # imajdaki versiyonla günceller.
-docker run --rm "${RUN_AS[@]}" -v "$PWD:/workdir" "$IMAGE" export
+docker run --rm "${INSTALL_RUN_AS[@]}" -v "$PWD:/workdir" "$IMAGE" export
 
 if [ "${1:-}" = "--classic" ]; then
-    exec docker run --rm -i --network host "${RUN_AS[@]}" -v "$PWD:/workdir" "$IMAGE" classic
+    exec docker run --rm -i --network host "${INSTALL_RUN_AS[@]}" -v "$PWD:/workdir" "$IMAGE" classic
 fi
 
 if [ ! -t 0 ] || [ ! -t 1 ]; then
@@ -95,7 +147,7 @@ fi
 HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 [ -z "$HOST_IP" ] && HOST_IP="$(ipconfig getifaddr en0 2>/dev/null || true)"
 docker run --rm -it -e TERM -e COLORTERM -e "DATARUL_DEFAULT_SERVER_IP=$HOST_IP" \
-    "${RUN_AS[@]}" -v "$PWD:/workdir" "$IMAGE" tui
+    "${INSTALL_RUN_AS[@]}" -v "$PWD:/workdir" "$IMAGE" tui
 tui_rc=$?
 # Ekranı gerçekten temizle: bazı terminaller TUI'nin alternate-screen çıkış dizisini tanımıyor
 # (içerik ekranda kalıyor). terminfo'ya bağlı değil: ekran + scrollback sil, imleç eve, göster.
