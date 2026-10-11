@@ -43,6 +43,60 @@ Ayarları tamamladıktan sonra:
   daemon türünde de komutu çalıştıran host kullanıcısında tutar.
 
 
+## Arayüzden güncelleme (Sistem Sağlığı → Güncellemeler)
+
+Yöneticiler Datarul'u sunucuya bağlanmadan, **Ayarlar → Sistem Sağlığı → Güncellemeler** sekmesinden
+güncelleyebilir. Yeni imajlar sistem çalışırken **İndir** ile çekilir, sonra **Kur ve yeniden başlat…** ile
+tek bir bakım penceresinde (genellikle birkaç dakika) kurulur. Her işlem kimin yaptığı, sürümleri, sonucu ve
+log'uyla **Geçmiş**'te kalır.
+
+**Mevcut bir kurulumda bir kez açın.** Arayüzden güncellemeyi sağlayan güncelleme ajanı (`upgrade-agent`)
+ilk kez sunucudan kurulur; sonraki bütün güncellemeler arayüzden yapılır:
+
+```bash
+cd <kurulum-dizini>
+git pull --ff-only
+./bootstrap.sh
+./deploy.sh --run     # tam deploy: ajan bu adımda kurulur
+```
+
+Yeni kurulumlarda ajan ilk `./deploy.sh` ile kendiliğinden gelir.
+
+- **Kimler kullanabilir:** Yönetici rolü. Kurulum, sunucu adının yazılmasıyla onaylanır; çift tıklama ikinci bir
+  kurulum başlatmaz.
+- **Arayüzden güncellenmeyenler:** altyapı bileşenleri (PostgreSQL, RabbitMQ, Redis, Seq, nginx) listede
+  "Yalnız SSH" olarak işaretlidir. Bir sürüm bunlardan birini değiştiriyorsa ekran bunu söyler; o güncelleme
+  sunucuda `./deploy.sh --run` ile yapılır.
+- **Yedek:** Datarul'un kendi veritabanını kullanan kurulumlarda onay penceresindeki "Önce veritabanını yedekle"
+  seçeneği varsayılan olarak açıktır. Kendi PostgreSQL'inizi kullanıyorsanız bu seçenek kapalıdır; veritabanı
+  şeması değişebileceği için güncellemeden önce kendi yedeğinizi alın.
+- **Çalışan işler:** harvest, veri kalitesi, LDAP eşitlemesi gibi süren işler onay penceresinde listelenir;
+  kurulum bunları keser.
+- **Kurulum başarısız olursa:** kullanıcılar bakım sayfasını görmeye devam eder, sistem kısmen çalışıyor olabilir.
+  Ekran işlem kimliğini gösterir; ayrıntı sunucuda `logs/upgrade/<işlem-kimliği>/operation.log` dosyasındadır.
+  Sistemi sunucuda `./deploy.sh --run` ile ayağa kaldırın. Kurulum başarılı olup yalnız ajan yenilenemediyse
+  `./deploy.sh --run --agent` yeterlidir.
+- **Kapatmak için:** `.env`'de `DATARUL_UPGRADE_AGENT_ENABLED=false` yapıp `./deploy.sh --run` çalıştırın.
+  Güncellemeler sekmesi sürümleri göstermeye devam eder, indirme ve kurma kapanır.
+
+### Güvenlik
+
+Güncelleme ajanı imaj çekebilmek ve container yönetebilmek için sunucunun Docker soketine erişir. Docker
+soketine erişim sunucuda yönetici (root) yetkisine eşdeğerdir; bu yetki gizlenmez, şu önlemlerle sınırlanır:
+
+- Ajan dışarıya port açmaz; yalnız Datarul'un iç Docker ağından erişilir.
+- Ajana gelen her istek Datarul uygulamasından imzalı gelir (paylaşılan gizli anahtar, zaman ve tekrar
+  koruması); imzasız istekler reddedilir.
+- Ajan yalnız sabit işlemleri yapar (sürüm kontrolü, indirme, kurulum). İstekler imaj, tag, komut ya da dosya
+  yolu taşımaz; hangi imajların kurulacağı her zaman sunucudaki `.env`'den belirlenir.
+- Kurulumu yalnız indirilmiş ve doğrulanmış kurulum aracı imajı yürütür.
+- Yanıtlar, ilerleme bilgisi ve log dosyaları token, parola ya da `.env` içeriği taşımaz. Tarayıcıya açık tek uç
+  (`/ops/upgrade/status`) yalnız aşama adını ve sonucu gösterir.
+- Bu modeli kabul etmeyen ortamlarda ajan yukarıdaki gibi kapatılabilir.
+
+SELinux'un enforcing modda olduğu sunucularda (RHEL, Rocky, Alma) ajanın Docker soketine erişimi engellenirse
+Güncellemeler sekmesi bunu bir uyarıyla gösterir ve salt okunur kalır; bu durumda Datarul ile iletişime geçin.
+
 ## Birden fazla Linux kullanıcısıyla ortak kurulum
 
 Ortak mod otomatik algılanmaz. Yönetici, yalnız yetkili kurulum hesaplarını içeren bir Linux
