@@ -36,7 +36,7 @@ Ayarları tamamladıktan sonra:
 
 - Ayarları sonradan değiştirmek için `./set-env.sh` (soru-cevap sihirbazı; ayar TUI'si için `./set-env.sh --tui` ya da tekrar `./bootstrap.sh`).
 - Soru-cevap sihirbazı TTY'siz terminalde de çalışır; TUI (`--tui`) TTY ister. `--classic` eski çağrılar için kabul edilir, varsayılanla aynıdır.
-- Belirli bir kurulum aracı versiyonu için: `DATARUL_TUI_TAG=<tag> ./bootstrap.sh`
+- Kurulum aracının tag'i sırasıyla `DATARUL_TUI_TAG` ortam değişkeninden, `.env`'deki `DATARUL_TUI_TAG`'den ya da kurulum profilinden (`datarul-dev` → `dev`) gelir; hiçbiri yoksa `latest`. Belirli bir versiyon için: `DATARUL_TUI_TAG=<tag> ./bootstrap.sh`. Bootstrap çektiği aracı ve tag'in nereden geldiğini başta yazar (`Kurulum aracı: datarulplatform/setup-tui:dev (e556589) — tag kaynağı: kurulum profili datarul-dev`).
 - Token'ı etkileşimsiz vermek için ortam değişkeni: `DOCKERHUB_ACCESS_TOKEN=<docker-hub-token> ./bootstrap.sh` (istemde Enter ile kabul edilir). `.env`'e `DOCKERHUB_TOKEN` yazılır; kullanıcı adı sabittir (`datarulplatform`). Token yalnız bootstrap'ta sorulur — ayar sihirbazı ve TUI `.env`'dekini kullanır; token değiştirmek için tekrar `./bootstrap.sh`. İstemde Enter, gösterilen (maskeli) kayıtlı token'ın tam değerini kullanır; Docker Hub reddederse bootstrap token'ın nereden geldiğini (`.env` ya da `DOCKERHUB_ACCESS_TOKEN` ortam değişkeni) söyler ve token'ı yeniden sorar (en fazla 3 deneme).
 - `.env` gizli değerler içerir (tek kullanıcıda 600, açıkça seçilen ortak kurulumda 660 izinli tutulur); yedeği her kayıtta `.env.bak`'a alınır.
 - Bootstrap rootful ve rootless Docker'ı otomatik algılar; bind mount dosya sahipliğini her iki
