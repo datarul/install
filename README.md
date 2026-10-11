@@ -76,8 +76,17 @@ Yeni kurulumlarda ajan ilk `./deploy.sh` ile kendiliğinden gelir.
   Ekran işlem kimliğini gösterir; ayrıntı sunucuda `logs/upgrade/<işlem-kimliği>/operation.log` dosyasındadır.
   Sistemi sunucuda `./deploy.sh --run` ile ayağa kaldırın. Kurulum başarılı olup yalnız ajan yenilenemediyse
   `./deploy.sh --run --agent` yeterlidir.
-- **Kapatmak için:** `.env`'de `DATARUL_UPGRADE_AGENT_ENABLED=false` yapıp `./deploy.sh --run` çalıştırın.
-  Güncellemeler sekmesi sürümleri göstermeye devam eder, indirme ve kurma kapanır.
+- **Kapatmak için:** ayar sihirbazında "UI'dan güncelleme (upgrade agent)" alanını kapatın, sonra yalnız ajanı
+  güncelleyin; uygulama durmaz, bakım penceresi açılmaz:
+
+  ```bash
+  ./set-env.sh                 # "UI'dan güncelleme" → hayır (DATARUL_UPGRADE_AGENT_ENABLED=false)
+  ./deploy.sh --run --agent    # ajan container'ı kaldırılır
+  ```
+
+  Güncellemeler sekmesi sürümleri göstermeye devam eder, indirme ve kurma kapanır. Yeniden açmak için aynı
+  alanı açıp `./deploy.sh --run` çalıştırın (tam deploy: ajan sırrı ilk kez üretildiyse uygulamanın da onu
+  alması gerekir).
 
 ### Güvenlik
 
