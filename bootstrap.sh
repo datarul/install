@@ -15,7 +15,11 @@
 #   ./bootstrap.sh              # tam akış: login → pull → export → soru-cevap sihirbazı
 #   ./bootstrap.sh --tui        # sihirbaz yerine tam ekran ayar arayüzü (TUI; TTY ister)
 #   (--classic eski çağrılar için kabul edilir, varsayılanla aynı)
-#   DATARUL_TUI_TAG=v1.2.3 ./bootstrap.sh   # belirli imaj versiyonu
+#   DATARUL_TUI_TAG=v1.2.3 ./bootstrap.sh   # belirli imaj versiyonu (.env'dekini ezer)
+#
+# Kurulum aracı tag'i: DATARUL_TUI_TAG ortam değişkeni > .env'deki DATARUL_TUI_TAG > profil
+# varsayılanı (datarul-dev → dev) > latest. deploy.sh ve güncelleme ajanı da aynı kuralla
+# çözer; bootstrap başka bir kanaldan (ör. dev sunucusunda latest) araç çekmez.
 #   DOCKERHUB_ACCESS_TOKEN=... ./bootstrap.sh # token'ı ortamdan ver (Enter ile kabul edilir)
 
 set -euo pipefail
@@ -25,7 +29,9 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 
 # Docker Hub (org: datarulplatform) — setup'ın lib/registry.sh'ı ile aynı sabitler.
 REGISTRY_USERNAME="datarulplatform"  # org access token: kullanıcı adı = org adı (sabit)
-IMAGE="datarulplatform/setup-tui:${DATARUL_TUI_TAG:-latest}"
+# Açık ortam değeri .env source edilmeden ÖNCE yakalanır: .env'deki `export DATARUL_TUI_TAG=…`
+# satırı komut satırında verilen değeri ezmesin.
+TUI_TAG_FROM_ENV="${DATARUL_TUI_TAG:-}"
 
 MODE=classic
 case "${1:-}" in
@@ -94,9 +100,34 @@ install_container_args() {
 }
 
 
+# Kurulum aracı tag'i (bkz. başlık). Profil varsayılanı setup'ın lib/compose-resolve.sh
+# apply_profile_defaults satırıyla aynıdır: `profile_default datarul-dev DATARUL_TUI_TAG dev`.
+resolve_toolkit_tag() {
+    if [ -n "$TUI_TAG_FROM_ENV" ]; then
+        TUI_TAG="$TUI_TAG_FROM_ENV"; TUI_TAG_SOURCE="DATARUL_TUI_TAG ortam değişkeni"
+    elif [ -n "${DATARUL_TUI_TAG:-}" ]; then
+        TUI_TAG="$DATARUL_TUI_TAG"; TUI_TAG_SOURCE=".env"
+    elif [ "${DATARUL_DEPLOY_PROFILE:-customer}" = "datarul-dev" ]; then
+        TUI_TAG="dev"; TUI_TAG_SOURCE="kurulum profili datarul-dev"
+    else
+        TUI_TAG="latest"; TUI_TAG_SOURCE="varsayılan"
+    fi
+    case "$TUI_TAG" in
+        '' | [.-]* | *[!A-Za-z0-9_.-]*)
+            echo -e "${RED}Hata:${NC} geçersiz kurulum aracı tag'i ($TUI_TAG_SOURCE): '$TUI_TAG'" >&2
+            return 1 ;;
+    esac
+    if [ "${#TUI_TAG}" -gt 128 ]; then
+        echo -e "${RED}Hata:${NC} kurulum aracı tag'i 128 karakterden uzun ($TUI_TAG_SOURCE)." >&2
+        return 1
+    fi
+    IMAGE="datarulplatform/setup-tui:$TUI_TAG"
+}
+
 install_policy_load || exit 1
 install_require_readable_env .env || exit 1
 if [ -f .env ]; then source .env || exit 1; fi
+resolve_toolkit_tag || exit 1
 
 echo -e "${GREEN}Datarul Kurulum${NC}"
 echo "Docker Hub erişimi için Datarul'un verdiği erişim token'ı gerekli."
@@ -145,6 +176,20 @@ if ! docker pull "$IMAGE"; then
     exit 1
 fi
 
+# Sonraki bütün adımlar tag ile değil, az önce çekilen imajın kimliğiyle çalışır: arada başka
+# bir pull (CI, güncelleme ajanı) tag'i taşısa da write-env, export ve sihirbaz aynı araçtan gelir.
+TOOLKIT_ID="$(docker image inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)"
+case "$TOOLKIT_ID" in
+    sha256:*) ;;
+    *) echo -e "${RED}Hata:${NC} çekilen $IMAGE imajının kimliği okunamadı." >&2; exit 1 ;;
+esac
+TOOLKIT_REVISION="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$TOOLKIT_ID" 2>/dev/null || true)"
+case "$TOOLKIT_REVISION" in
+    [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) TOOLKIT_LABEL="${TOOLKIT_REVISION:0:7}" ;;
+    *) TOOLKIT_LABEL="revision bilinmiyor" ;;
+esac
+echo -e "Kurulum aracı: ${GREEN}$IMAGE${NC} ($TOOLKIT_LABEL) — tag kaynağı: $TUI_TAG_SOURCE"
+
 # Rootful Docker'da container UID/GID'ini cagiran kullaniciya sabitle; aksi halde
 # bind mount'a yazilan dosyalar host'ta root sahipli kalir. Rootless Docker'da ise
 # container UID 0 zaten daemon'u calistiran host kullanicisina eslenir. Orada
@@ -157,19 +202,21 @@ install_container_args || exit 1
 # DOCKERHUB_USERNAME anahtarları bu kayıtta düşer). Aynı kayıt anında boş makine sırları (realtime ticket secret,
 # Redis parolası) da üretilir — deploy.sh üretmez.
 printf 'DOCKERHUB_TOKEN=%s\n' "$DOCKERHUB_TOKEN" \
-    | docker run --rm -i "${INSTALL_RUN_AS[@]}" -v "$PWD:/workdir" "$IMAGE" write-env
+    | docker run --rm -i "${INSTALL_RUN_AS[@]}" -v "$PWD:/workdir" "$TOOLKIT_ID" write-env
 
 # Kurulum dosyalarını (compose, nginx, script'ler) imajdan bu dizine çıkar.
 # .env'e ve sertifika/log dizinlerine dokunmaz; script/compose dosyalarını
-# imajdaki versiyonla günceller.
-docker run --rm "${INSTALL_RUN_AS[@]}" -v "$PWD:/workdir" "$IMAGE" export
+# imajdaki versiyonla günceller. Toolkit kaydı (.datarul/toolkit-installed.json) imaj kimliğini
+# ve kaynağı (bootstrap) taşır; System Health → Güncellemeler kurulu aracı buradan okur.
+docker run --rm "${INSTALL_RUN_AS[@]}" -e DATARUL_TOOLKIT_EXPORT_SOURCE=bootstrap \
+    -e "DATARUL_TOOLKIT_IMAGE_ID=$TOOLKIT_ID" -v "$PWD:/workdir" "$TOOLKIT_ID" export
 
 if [ "$MODE" = classic ]; then
     # Sihirbaz imajdaki set-env.sh'tır (entrypoint `classic`). TTY varsa -t: token istemi
     # (read -s) ekrana yansımasın; TTY'siz (CI, pipe) -i yeter.
     tty_args=(-i)
     [ -t 0 ] && [ -t 1 ] && tty_args=(-it -e TERM)
-    exec docker run --rm "${tty_args[@]}" --network host "${INSTALL_RUN_AS[@]}" -v "$PWD:/workdir" "$IMAGE" classic
+    exec docker run --rm "${tty_args[@]}" --network host "${INSTALL_RUN_AS[@]}" -v "$PWD:/workdir" "$TOOLKIT_ID" classic
 fi
 
 if [ ! -t 0 ] || [ ! -t 1 ]; then
@@ -182,7 +229,7 @@ fi
 HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 [ -z "$HOST_IP" ] && HOST_IP="$(ipconfig getifaddr en0 2>/dev/null || true)"
 docker run --rm -it -e TERM -e COLORTERM -e "DATARUL_DEFAULT_SERVER_IP=$HOST_IP" \
-    "${INSTALL_RUN_AS[@]}" -v "$PWD:/workdir" "$IMAGE" tui
+    "${INSTALL_RUN_AS[@]}" -v "$PWD:/workdir" "$TOOLKIT_ID" tui
 tui_rc=$?
 # Ekranı gerçekten temizle: bazı terminaller TUI'nin alternate-screen çıkış dizisini tanımıyor
 # (içerik ekranda kalıyor). terminfo'ya bağlı değil: ekran + scrollback sil, imleç eve, göster.
