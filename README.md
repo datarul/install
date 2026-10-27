@@ -36,7 +36,7 @@ Ayarları tamamladıktan sonra:
 
 - Ayarları sonradan değiştirmek için `./set-env.sh` (soru-cevap sihirbazı; ayar TUI'si için `./set-env.sh --tui` ya da tekrar `./bootstrap.sh`).
 - Soru-cevap sihirbazı TTY'siz terminalde de çalışır; TUI (`--tui`) TTY ister. `--classic` eski çağrılar için kabul edilir, varsayılanla aynıdır.
-- Kurulum aracının tag'i sırasıyla `DATARUL_TUI_TAG` ortam değişkeninden, `.env`'deki `DATARUL_TUI_TAG`'den ya da kurulum profilinden (`datarul-dev` → `dev`) gelir; hiçbiri yoksa `latest`. Belirli bir versiyon için: `DATARUL_TUI_TAG=<tag> ./bootstrap.sh`. Bootstrap çektiği aracı ve tag'in nereden geldiğini başta yazar (`Kurulum aracı: datarulplatform/setup-tui:dev (e556589) — tag kaynağı: kurulum profili datarul-dev`).
+- Kurulum aracının tag'i sırasıyla `DATARUL_TUI_TAG` ortam değişkeninden ya da `.env`'deki `DATARUL_TUI_TAG`'den gelir; ikisi de yoksa `latest`. Belirli bir versiyon için: `DATARUL_TUI_TAG=<tag> ./bootstrap.sh`. Bootstrap çektiği aracı ve tag'in nereden geldiğini başta yazar (`Kurulum aracı: datarulplatform/setup-tui:latest (e556589) — tag kaynağı: varsayılan`).
 - Token'ı etkileşimsiz vermek için ortam değişkeni: `DOCKERHUB_ACCESS_TOKEN=<docker-hub-token> ./bootstrap.sh` (istemde Enter ile kabul edilir). `.env`'e `DOCKERHUB_TOKEN` yazılır; kullanıcı adı sabittir (`datarulplatform`). Token yalnız bootstrap'ta sorulur — ayar sihirbazı ve TUI `.env`'dekini kullanır; token değiştirmek için tekrar `./bootstrap.sh`. İstemde Enter, gösterilen (maskeli) kayıtlı token'ın tam değerini kullanır; Docker Hub reddederse bootstrap token'ın nereden geldiğini (`.env` ya da `DOCKERHUB_ACCESS_TOKEN` ortam değişkeni) söyler ve token'ı yeniden sorar (en fazla 3 deneme).
 - `.env` gizli değerler içerir (tek kullanıcıda 600, açıkça seçilen ortak kurulumda 660 izinli tutulur); yedeği her kayıtta `.env.bak`'a alınır.
 - Bootstrap rootful ve rootless Docker'ı otomatik algılar; bind mount dosya sahipliğini her iki
@@ -212,25 +212,18 @@ git pull --ff-only
 - `deploy.sh` Docker Hub'a girişi container'ları durdurmadan **önce** yapar: token eksik/geçersizse deploy hata
   verip durur, sistem kapatılmaz. Eski ghcr kalıntıları (ghcr container/imajları,
   `.env`'deki `GITHUB_*`, Docker'ın kayıtlı `ghcr.io` girişi) tam deploy sırasında, container'lar durup bakım sayfası
-  açıldıktan sonra ve imajlar çekilmeden önce `remove-ghcr-leftovers.sh` ile temizlenir (landing-pages hariç). Seçici
+  açıldıktan sonra ve imajlar çekilmeden önce `remove-ghcr-leftovers.sh` ile temizlenir. Seçici
   deploy (`--dotnet`, `--frontend`, …) hâlâ çalışan bir ghcr container'ı görürse "Docker Hub'a ilk geçiş tam deploy
-  ister: `./deploy.sh --run`" hatasıyla durur (hiçbir şey değişmez). Bu yüzden dev/demo gibi CI ile deploy edilen
+  ister: `./deploy.sh --run`" hatasıyla durur (hiçbir şey değişmez). Bu yüzden CI ile deploy edilen
   sunucularda `./bootstrap.sh` sonrası **bir kez elle tam deploy** çalıştırın.
 - `remove-ghcr-leftovers.sh` tek seferlik, idempotent geçiş temizliğidir (`-y` onayı atlar; kalıntı yoksa sessizce
-  çıkar). Elle de çalıştırılabilir: `ghcr.io/datarul/*` imajlı container'ları durdurup siler, bu imajları siler,
+  çıkar). Elle de çalıştırılabilir: bu kurulumun eski `ghcr.io/datarul` uygulama container'larını durdurup siler, imajlarını siler,
   `.env`'den `GITHUB_USERNAME`/`GITHUB_TOKEN`'ı kaldırıp `.env.bak`'ı temiz `.env` ile yeniler (eski PAT yedekte
   kalmaz) ve Docker'ın kayıtlı `ghcr.io` girişini siler (`docker logout ghcr.io`, yalnız çalıştıran kullanıcı için).
-  Demo dahil tüm ortamlarda çalışır; landing-pages korunur.
+  Yalnız bu kurulumun eski uygulama imajlarına dokunur.
 - Eski bir araç setinin `./set-env.sh` komutunu çalıştırırsanız yeni araç seti ghcr'den gelir; bu durumda bir sonraki
   deploy "`./bootstrap.sh` çalıştırıp Docker Hub token'ını girin" mesajıyla durur — yukarıdaki adımları uygulayın.
 - `test-ghcr-access.sh` → `test-registry-access.sh` oldu; `test-github-token.sh` kaldırıldı (araç seti export'unda
   kurulum dizininden silinir). Erişimi `./test-registry-access.sh` ile doğrulayabilirsiniz.
-- Demo çok-host kurulumdaki `landing-pages` imajı şimdilik `ghcr.io/datarul/landing-pages`'te kalır.
-  `./deploy.sh --frontend2` bunu süreç ortamındaki `GHCR_USERNAME` + `GHCR_TOKEN` (read:packages PAT) ile çeker;
-  PAT hiçbir ortamda `.env`'e yazılmaz, geçici `DOCKER_CONFIG` kullanıldığı için `~/.docker/config.json`'a da yazılmaz.
-  Demo sunucusunda operatör bunları shell profiline ekler (ör. `~/.zprofile`:
-  `export GHCR_USERNAME=<github-kullanıcı> GHCR_TOKEN=<read:packages-PAT>`); CI kullanıyorsa job env'i olarak verilmelidir
-  (self-hosted runner servisi shell profillerini yüklemez). Değişkenler yoksa yalnız `--frontend2` net bir mesajla hata
-  verir. Demo'nun eski `.env` `GITHUB_*` değerleri bootstrap'te düşer; sonraki `--frontend2`'den önce `GHCR_*` export edin.
 - `show-versions.sh --commits` için gereken `GITHUB_TOKEN` yalnızca süreç ortamından okunur
   (`GITHUB_TOKEN=<repo-okur-token> ./show-versions.sh --commits`), `.env`'e yazılmaz.

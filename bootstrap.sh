@@ -17,9 +17,8 @@
 #   (--classic eski çağrılar için kabul edilir, varsayılanla aynı)
 #   DATARUL_TUI_TAG=v1.2.3 ./bootstrap.sh   # belirli imaj versiyonu (.env'dekini ezer)
 #
-# Kurulum aracı tag'i: DATARUL_TUI_TAG ortam değişkeni > .env'deki DATARUL_TUI_TAG > profil
-# varsayılanı (datarul-dev → dev) > latest. deploy.sh ve güncelleme ajanı da aynı kuralla
-# çözer; bootstrap başka bir kanaldan (ör. dev sunucusunda latest) araç çekmez.
+# Kurulum aracı tag'i: DATARUL_TUI_TAG ortam değişkeni > .env'deki DATARUL_TUI_TAG > latest.
+# deploy.sh ve güncelleme ajanı da aynı kuralla çözer; bootstrap başka bir kanaldan araç çekmez.
 #   DOCKERHUB_ACCESS_TOKEN=... ./bootstrap.sh # token'ı ortamdan ver (Enter ile kabul edilir)
 
 set -euo pipefail
@@ -100,15 +99,12 @@ install_container_args() {
 }
 
 
-# Kurulum aracı tag'i (bkz. başlık). Profil varsayılanı setup'ın lib/compose-resolve.sh
-# apply_profile_defaults satırıyla aynıdır: `profile_default datarul-dev DATARUL_TUI_TAG dev`.
+# Kurulum aracı tag'i (bkz. başlık) — setup'ın lib/common.sh toolkit_tag kuralıyla aynı.
 resolve_toolkit_tag() {
     if [ -n "$TUI_TAG_FROM_ENV" ]; then
         TUI_TAG="$TUI_TAG_FROM_ENV"; TUI_TAG_SOURCE="DATARUL_TUI_TAG ortam değişkeni"
     elif [ -n "${DATARUL_TUI_TAG:-}" ]; then
         TUI_TAG="$DATARUL_TUI_TAG"; TUI_TAG_SOURCE=".env"
-    elif [ "${DATARUL_DEPLOY_PROFILE:-customer}" = "datarul-dev" ]; then
-        TUI_TAG="dev"; TUI_TAG_SOURCE="kurulum profili datarul-dev"
     else
         TUI_TAG="latest"; TUI_TAG_SOURCE="varsayılan"
     fi
